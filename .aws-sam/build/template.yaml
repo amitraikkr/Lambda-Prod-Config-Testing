@@ -1,0 +1,128 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: "SAM template to deploy lambda, sns, and dynamodb \n"
+Resources:
+  ParticipantDetailTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: participantDetails
+      AttributeDefinitions:
+      - AttributeName: email
+        AttributeType: S
+      KeySchema:
+      - AttributeName: email
+        KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+  SnsEmailNotification:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: EmailNotificationTopicv1
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName: PrepCloudWatchPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+      - PolicyName: PrepDynamoDBPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - dynamodb:Query
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            Resource: arn:aws:dynamodb:*:*:table/*
+      - PolicyName: LambdaSNSPublishPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action: sns:Publish
+            Resource:
+              Ref: SnsEmailNotification
+      - PolicyName: LambdaXRayPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - xray:PutTraceSegments
+            - xray:PutTelemetryRecords
+            Resource: '*'
+  PrepLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/participantapi.handler
+      Runtime: nodejs18.x
+      CodeUri: PrepLambdaFunction
+      Timeout: 10
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Environment:
+        Variables:
+          TABLE_NAME:
+            Ref: ParticipantDetailTable
+          SECRET_NAME:
+            Ref: SnsEmailNotification
+      Tracing: Active
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ParticipantAPICall
+            Path: /participants
+            Method: post
+    Metadata:
+      SamResourceId: PrepLambdaFunction
+  ParticipantAPICall:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: ParticipantAPI
+      StageName: prod
+      TracingEnabled: true
+Outputs:
+  ParticipantTable:
+    Description: DynamoDB Table for Participant Details
+    Value:
+      Ref: ParticipantDetailTable
+  SnsTopic:
+    Description: SNS Topic for Email Notifications
+    Value:
+      Ref: SnsEmailNotification
+  LambdaRole:
+    Description: IAM Role for Lambda
+    Value:
+      Fn::GetAtt:
+      - LambdaExecutionRole
+      - Arn
+  LambdaFunction:
+    Description: Lambda Function ARN
+    Value:
+      Fn::GetAtt:
+      - PrepLambdaFunction
+      - Arn
+  ApiUrl:
+    Description: API Gateway URL
+    Value:
+      Fn::Sub: https://${ParticipantAPICall}.execute-api.${AWS::Region}

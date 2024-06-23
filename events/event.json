@@ -1,0 +1,9 @@
+{
+    "body": {
+      "email": "john.doe@example.com",
+      "fname": "John",
+      "lname": "Doe",
+      "address": "123 Elm Street",
+      "phone": "123-456-7890"
+    }
+  }
